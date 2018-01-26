@@ -269,3 +269,11 @@ select generate_series(now(), now() + '7 days', '1 day');
 select generate_series(to_date('20130403','yyyymmdd'), to_date('20130404','yyyymmdd'), '3 hours');  
 ```
 
+#### 锁的问题
+
+```
+1.如何锁一个表的某一行
+select * from table rowlock where id =1
+
+```
+
