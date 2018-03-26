@@ -6,6 +6,45 @@ corosync + pacemaker + postgres_streaming_replication
 
 该文档用于说明以corosync+pacemaker的方式实现PostgreSQL流复制自动切换。注意内容包括有关corosync/pacemaker知识总结以及整个环境的搭建过程和问题处理。
 
+```shell
+删除 所有配置 --- /var/lib/pacemaker/cib
+单播配置：cd /etc/corosync/corosync.conf
+        interface {
+                member {
+                     memberaddr:192.168.67.134
+                }
+
+                 member {
+                     memberaddr:192.168.67.135 
+                }
+                ringnumber: 0
+                bindnetaddr: 192.168.67.0  （网段）
+                mcastport: 5405
+                ttl: 1
+        }
+ 在推荐的网络接口配置中有几件事需要注意：
+所有心跳网络的 ringnumber 配置不能重复，最小值为 0 。
+bindnetaddr 是心跳网卡 IP 地址对应的网络地址。示例中使用了两个子网掩码为 /24 的 IPv4 网段。
+Corosync 通信使用 UDP 协议，端口为 mcastport （接收数据）和 mcastport - 1 （发送数据）。配置防火墙时需要打开这两个端口。
+pgsql.crm--------内容
+primitive pingCheck ocf:pacemaker:ping \
+   params \
+        name="default_ping_set" \
+        host_list="192.168.67.1" \ (使用网关地址，必须是ping通)
+        multiplier="100" \
+        
+[postgres@node2 ~]$ crm_mon -Afr -1 ---（错误：权限不足，必须是root用户）
+Could not establish cib_ro connection: No such file or directory (2)
+
+Connection to cluster failed: Transport endpoint is not connected
+
+
+VIP 192.168.67.130 必须在一个网段
+
+```
+
+
+
 # 一、介绍
 
 Corosync
@@ -870,7 +909,7 @@ backup_label.old  global  pg_hba.conf  pg_multixact   pg_serial  pg_subtrans  pg
 启动heartbeat之前必须删除资锁，不然资源将不会伴随heartbeat启动：
 
 ```shell
-[root@node1 ~]# rm -rf /var/lib/pgsql/tmp/PGSQL.lock
+[root@node1 ~]# rm -rf /var/lib/pgsql/tmp/PGSQL.lock	
 ```
 
 {该锁文件在当节点为主节点时创建，但不会因为heartbeat的异常停止或数据库/系统的异常终止而自动删除，所以在恢复一个节点的时候只要该节点充当过主节点就需要手动清理该锁文件}

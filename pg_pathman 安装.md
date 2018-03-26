@@ -38,7 +38,7 @@ select create_range_partitions(
         'crt_time',                     --分区字段，一定要not null约束
         '2017-11-07 01:51:27'::timestamp, --开始时间
         interval '1 day',               --分区间隔，一个月
-        10,                             --分区表数量
+        30,                             --分区表数量
         false                           --  不立即将数据从主表迁移到分区,
 );
 

@@ -36,7 +36,7 @@
 执行后现象：
 # 虚拟-VIP ：22.224.54.178 不会发生变化。
 /app/chredis/bin/redis-cli -p 4000 info |grep -A 5 Replication
-# redis重新启动，redis主从关系不发生变化。
+#keepalived重新启动，redis主从关系不发生变化。
 ```
 
 ### 测试场景 四：

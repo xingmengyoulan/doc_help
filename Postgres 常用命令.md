@@ -60,6 +60,7 @@ pg_dump -h localhost -U postgres -t tablename -a dbname > test_data.sql
 copy (select * from tablename) to '/tmp/1.txt' (format csv,delimiter '|');
 \copy (select * from tablename) to '/tmp/1.txt' with delimiter '|';
 
+psql -c "\copy (select * from PBX_CASH_RCV_REG where TRAN_DATE='20170913') to 'PBX_CASH_RCV_REG.txt' with delimiter '|' NULL ' '"
 ```
 
 ##### 清除所有表
@@ -69,7 +70,7 @@ CREATE FUNCTION aaa() RETURNS void AS $$
 DECLARE
     tmp VARCHAR(512);
 DECLARE names CURSOR FOR 
-    select tablename from pg_tables where schemaname='public';
+    select tablename from pg_tables where schemaname='public' ;
 BEGIN
   FOR stmt IN names LOOP
     tmp := 'DROP TABLE '|| quote_ident(stmt.tablename) || ' CASCADE;';
@@ -184,7 +185,7 @@ select CURRENT_TIME  + time '03:00';
 ##### 如何找到postgreSQL数据库中占空间最大的表？
 
 ``` sql
- SELECT relname, relpages FROM pg_class ORDER BY relpages DESC;
+ SELECT relname,relpages FROM pg_class ORDER BY relpages DESC;
 如果你只想要最大的那个表，可以用limit参数来限制结果的数量，就像这样：
 SELECT relname, relpages FROM pg_class ORDER BY relpages DESC limit 1;
 

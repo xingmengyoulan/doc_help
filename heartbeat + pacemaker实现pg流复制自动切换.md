@@ -540,7 +540,7 @@ primitive pgsql ocf:heartbeat:pgsql \
     op stop    timeout="60s" interval="0s"  on-fail="block" \
     op notify  timeout="60s" interval="0s"
 
-primitive pingCheck ocf:pacemaker:pingd \
+primitive pingCheck ocf:pacemaker:ping \
     params \
         name="default_ping_set" \
         host_list="192.168.100.1" \
