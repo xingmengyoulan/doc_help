@@ -278,3 +278,252 @@ select * from table rowlock where id =1
 
 ```
 
+#### 常用语句
+
+```sql
+select localdatetime,retcode,respinfo from  ol_transdetail where localdatetime> '20180109100000' and receprodcode='612020' and retcode='09209999';
+
+
+select * from ol_transdetail where  localdatetime>'20180109163000';
+
+select SUBSTR(localdatetime,9,4),logip,retcode,count(*),round(avg(protime),2) as 渠道耗时,round(avg(backtime),2) as 后台耗时 from ol_transdetail where localdate ='20180329'  and localdatetime > '20180329170300' GROUP BY SUBSTR(localdatetime,9,4),logip,retcode ORDER BY SUBSTR(localdatetime,9,4);
+ 
+ select DISTINCT(logip) from ol_transdetail  ;
+ 
+select logip,retcode,count(*),round(avg(protime),2) as 渠道耗时,round(avg(backtime),2) as 后台耗时  from ol_transdetail where localdatetime >= to_char(now() - interval '1 min','YYYYMMDDHHMMSS') group by  logip ,retcode;
+```
+
+#### 每分钟查询结果
+
+```sql
+select SUBSTR(localdatetime,9,4),logip,retcode,count(*),round(avg(protime),2) as 渠道耗时,round(avg(backtime),2) as 后台耗时 from ol_transdetail where  localdatetime > to_char(now() - interval '1 min','YYYYMMDDHHMISS') GROUP BY SUBSTR(localdatetime,9,4),logip,retcode ORDER BY SUBSTR(localdatetime,9,4),渠道耗时 desc;
+```
+
+### 创建基础备份
+
+```sql
+	vi pg_hba.conf
+	host all all  192.168.67.35/24             md5
+	host replication postgres 192.168.67.35/24 trust
+	pg_basebackup -h node1 -U replication -D /data/postgresql/data/ -X stream -P
+查看主备关系
+	select * from pg_stat_replication ;
+```
+
+###用pg_rewind命令同步新备库
+
+```
+pg_rewind --target-pgdata $PGDATA --source-server='host=192.168.1.203 port=5432 user=postgres dbname=postgres' -P
+mv recovery.done recovery.conf
+vi recovery.conf
+
+```
+
+### 高可用（pcs+corosync+postgres）修复旧Master
+
+```
+检查集群状态   
+由于设置了migration-threshold="3"，发生一次普通的错误，Pacemaker会在原地重新启动postgres进程，不发生主从切换。
+（如果Master的物理机或网络发生故障，直接进行failover。）
+```
+
+第一种方法：可通过`pg_basebackup`修复旧Master（需要强行恢复的情况下）
+
+```
+# su - postgres
+$ rm -rf /data/postgresql/data
+$ pg_basebackup -h 192.168.41.136 -U postgres -D /data/postgresql/data -X stream -P
+$ exit
+# pcs resource cleanup msPostgresql
+```
+
+第二种方法：通过`pg_baseback`修复旧Master。`cls_rebuild_slave`是对`pg_basebackup`的包装，主要多了执行结果状态的检查。
+
+```shell
+[root@node1 pha4pgsql]# rm -rf /data/postgresql/data
+[root@node1 pha4pgsql]# cls_rebuild_slave 
+22636/22636 kB (100%), 1/1 tablespace
+All resources/stonith devices successfully cleaned up
+wait for recovery complete
+.....
+slave recovery of node1 successed
+[root@node1 pha4pgsql]# cls_status
+Last updated: Fri Apr 22 02:40:48 2016
+Last change: Fri Apr 22 02:40:36 2016 by root via crm_resource on node1
+Stack: corosync
+Current DC: node2 (2) - partition with quorum
+Version: 1.1.12-a14efad
+2 Nodes configured
+4 Resources configured
+```
+
+第三种方法: 9.5以上版本还可以通过`pg_rewind`修复旧Master
+
+```shell
+	[root@node1 pha4pgsql]# cls_repair_by_pg_rewind 
+	connected to server
+	servers diverged at WAL position 0/7000410 on timeline 2
+	rewinding from last common checkpoint at 0/7000368 on timeline 2
+	reading source file list
+	reading target file list
+	reading WAL in target
+	need to copy 67 MB (total source directory size is 85 MB)
+	69591/69591 kB (100%) copied
+	creating backup label and updating control file
+	syncing target data directory
+	Done!
+	All resources/stonith devices successfully cleaned up
+	wait for recovery complete
+	....
+	slave recovery of node1 successed 
+```
+
+###  高可用（pcs+corosync+postgres）Slave上进程故障
+
+再强制杀死Master上的postgres进程2次后检查集群状态。
+
+fail-count增加到3后，Pacemaker不再启动PostgreSQL，保持其为停止状态。
+
+同时，Master(node1)(VIP所在的主机)上的复制模式被自动切换到异步复制，防止写操作hang住。
+
+```shell
+[root@node1 pha4pgsql]# tail /var/lib/pgsql/tmp/rep_mode.conf
+synchronous_standby_names = ''
+```
+
+#### 修复Salve   
+
+在node2上执行`cls_cleanup`，清除fail-count后，Pacemaker会再次启动PostgreSQL进程。
+
+```shell
+[root@node2 ~]# cls_cleanup 
+All resources/stonith devices successfully cleaned up
+[root@node2 ~]# cls_status 
+Last updated: Sun May  8 01:43:13 2016
+Last change: Sun May  8 01:43:08 2016 by root via crm_resource on node1
+Stack: corosync
+Current DC: node2 (2) - partition with quorum
+Version: 1.1.12-a14efad
+2 Nodes configured
+4 Resources configured
+```
+
+同时，Master(node1)上的复制模式又自动切换回到同步复制。
+
+```
+[root@node1 pha4pgsql]# tail /var/lib/pgsql/tmp/rep_mode.conf
+synchronous_standby_names = 'node2'(只会有同步流复制)
+```
+
+## 错误排查
+
+出现故障时，可通过以下方法排除故障
+
+1. 确认集群服务是否OK
+
+   pcs status
+
+2. 查看错误日志
+
+   PostgreSQL的错误日志
+   	/var/log/messages
+   	/var/log/cluster/corosync.log
+
+   Pacemaker输出的日志非常多，可以进行过滤。
+
+   只看Pacemaker的资源调度（在Current DC节点上执行)：
+
+   ```
+   grep Initiating /var/log/messages 
+   ```
+
+   只查看expgsql RA的输出：
+
+   ```
+   grep expgsql /var/log/messages
+   ```
+
+## 其它故障的处理
+
+### 无Master时的修复
+
+如果切换失败或其它原因导致集群中没有Master，可以参考下面的步骤修复
+
+#### 方法1：使用cleanup修复
+
+```shell
+cls_cleanup
+```
+
+大部分情况，cleanup就可以找到Master。而且应该首先使用cleanup。如果不成功，再采用下面的方法
+
+#### 方法2：人工修复复制关系
+
+1. 将资源脱离集群管理
+
+   cls_unmanage
+
+2. 人工修复PostgreSQL，建立复制关系
+   至于master的选取，可以选择`pgsql_REPL_INFO`中的master节点，或根据xlog位置确定。
+
+3. 在所有节点上停止PostgreSQL
+
+4. 清除状态并恢复集群管理
+
+   cls_manage
+   	cls_reset_master
+
+#### 方法3：快速恢复Master节点再恢复Slave
+
+可以明确指定将哪个节点作为Master，省略则通过xlog位置比较确定master
+
+```
+cls_reset_master [master]
+```
+
+### 疑难的Pacemaker问题的处理
+
+有时候可能会遇到一些顽固的问题，Pacemaker不按期望的动作，或某个资源处于错误状态却无法清除。
+这时最简单的办法就是清除CIB重新设置。可执行下面的命令完成。
+
+```
+./setup.sh [master]
+```
+
+如果不指定master，并且PostgreSQL进程是活动的，通过当前PostgreSQL进程的主备关系决定谁是master。
+如果当前没有处于主的PostgreSQL进程，通过比较xlog位置确定谁作为master。
+
+在PostgreSQL服务启动期间，正常情况下，执行setup.sh不会使服务停止。
+
+setup.sh还可以完全取代前面的`cls_reset_master`。
+
+### fail-count的清除
+
+如果某个节点上有资源的fail-count不为0，最好将其清除，即使当前资源是健康的。
+
+```
+cls_cleanup
+ps resource cleanup msPostgresql
+```
+
+###注意事项
+
+1. ./setup.sh会清除CIB，对Pacemaker资源定义的修改应该写到config.pcs里，防止下次执行setup.sh丢失。
+2. 有些包装后的脚本容易超时，比如`cls_rebuild_slave`。此时可能执行还没有完成的，需要通过`cls_status`或日志进行确认。
+
+### pg_log 和pg_xlog 和pg_clog的区别
+
+```shell
+#pg_xlog
+这个日志是记录的Postgresql的WAL信息，也就是一些事务日志信息(transaction log)，默认单个大小是16M，源码安装的时候可以更改其大小。这些信息通常名字是类似'000000010000000000000013'这样的文件，这些日志会在定时回滚恢复(PITR)，流复制(Replication Stream)以及归档时能被用到，这些日志是非常重要的，记录着数据库发生的各种事务信息，不得随意删除或者移动这类日志文件，不然你的数据库会有无法恢复的风险
+
+当你的归档或者流复制发生异常的时候，事务日志会不断地生成，有可能会造成你的磁盘空间被塞满，最终导致DB挂掉或者起不来。遇到这种情况不用慌，可以先关闭归档或者流复制功能，备份pg_xlog日志到其他地方，但请不要删除。然后删除较早时间的的pg_xlog，有一定空间后再试着启动Postgres。
+
+#pg_clog
+pg_clog这个文件也是事务日志文件，但与pg_xlog不同的是它记录的是事务的元数据(metadata)，这个日志告诉我们哪些事务完成了，哪些没有完成。这个日志文件一般非常小，但是重要性也是相当高，不得随意删除或者对其更改信息。
+
+总结：
+#pg_log记录各种Error信息，以及服务器与DB的状态信息，可由用户随意更新删除
+#pg_xlog与pg_clog记录数据库的事务信息，不得随意删除更新，做物理备份时要记得备份着两个日志。
+```
+
