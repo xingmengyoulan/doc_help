@@ -182,6 +182,27 @@ select CURRENT_TIME  + interval '1 hour';
 select CURRENT_TIME  + time '03:00';
 ```
 
+### 查看表空间
+
+```sql
+postgres=# \db 
+        Name         |      Owner      |                Location                
+---------------------+-----------------+----------------------------------------
+ idx_accountdb       | internetfinance | /data/dbdata/pgsql/idx_accountdb
+ idx_internetfinance | internetfinance | /data/dbdata/pgsql/idx_internetfinance
+ idx_productdb       | internetfinance | /data/dbdata/pgsql/idx_productdb
+
+postgres=# select * from pg_tablespace ;
+       spcname       | spcowner | spcacl | spcoptions 
+---------------------+----------+--------+------------
+ pg_default          |       10 |        | 
+ pg_global           |       10 |        | 
+ ts_internetfinance  |    16384 |        | 
+ idx_internetfinance |    16384 |        | 
+ ts_accountdb        |    16384 |        | 
+
+```
+
 ##### 如何找到postgreSQL数据库中占空间最大的表？
 
 ``` sql
@@ -525,5 +546,31 @@ pg_clog这个文件也是事务日志文件，但与pg_xlog不同的是它记录
 总结：
 #pg_log记录各种Error信息，以及服务器与DB的状态信息，可由用户随意更新删除
 #pg_xlog与pg_clog记录数据库的事务信息，不得随意删除更新，做物理备份时要记得备份着两个日志。
+```
+
+### WARNING:  out of shared memory
+
+```
+sysctl.conf
+kernel.shmmax = 12884901888
+kernel.shmall = 4718592
+vm.swappiness = 0
+vm.overcommit_memory = 2
+vm.overcommit_ratio = 80
+vm.dirty_ratio = 10
+vm.dirty_background_ratio = 1
+vm.vfs_cache_pressure=150
+vm.dirty_writeback_centisecs = 50
+net.ipv4.tcp_tw_recycle=1
+net.ipv4.tcp_tw_reuse=1
+vm.nr_hugepages=2300
+
+postgresql.conf
+shared_buffers = 4GB # min 128kB
+huge_pages = on # on, off, or try
+work_mem = 64MB # min 64kB
+maintenance_work_mem = 512MB # min 1MB
+max_stack_depth = 8MB # min 100kB
+dynamic_shared_memory_type = posix # the default is the first option
 ```
 

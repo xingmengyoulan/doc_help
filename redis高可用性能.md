@@ -13,9 +13,9 @@
 执行后现象：
 虚拟-VIP ：22.224.54.178 漂移到从节点（22.224.54.141），使用在/etc/keepalived/使用test.sh 查看
 /app/chredis/bin/redis-cli -p 4000 info |grep -A 5 Replication
-从节点（22.224.54.136） redis服务变为主
-主节点（22.224.54.141） redis服务变为从
-# keepalived 重新启动，redis主从关系不会改变
+从节点（22.224.54.136） 
+主节点（22.224.54.141） 
+# keepalived 重新启动，redis主从关系发生变化
 ```
 
 ### 测试场景 二：
